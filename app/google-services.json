@@ -1,0 +1,29 @@
+{
+  "project_info": {
+    "project_number": "483190815607",
+    "project_id": "calinetwork",
+    "storage_bucket": "calinetwork.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:483190815607:android:f23d29c1087fbb77f3bf72",
+        "android_client_info": {
+          "package_name": "com.example.myapplication"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyAXYiWVFgl_Es4oDgwKxdKtdWvpn-WrOM4"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}
