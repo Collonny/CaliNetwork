@@ -1,13 +1,48 @@
 package com.example.myapplication
 
+import android.os.Parcelable
 import androidx.compose.runtime.Composable
 import androidx.navigation.NavType
 import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
 import androidx.navigation.compose.rememberNavController
 import androidx.navigation.navArgument
-import java.net.URLDecoder
-import java.net.URLEncoder
+import kotlinx.parcelize.Parcelize
+
+// 🔹 AŽURIRANE PARCELABLE KLASE
+@Parcelize
+data class RatingParcelable(val average: Double, val brRatings: Long, val userRatings: Map<String, Long>) : Parcelable
+
+@Parcelize
+data class WorkoutParkParcelable(
+    val id: String, val name: String, val opis: String, val latituda: Double, 
+    val longituda: Double, val rating: RatingParcelable, val createdBy: String, 
+    val challenges: Map<String, ChallengeParcelable>
+) : Parcelable
+
+@Parcelize
+data class ChallengeParcelable(val bestUser: String, val bestScore: Long) : Parcelable
+
+// 🔹 AŽURIRANE POMOĆNE FUNKCIJE
+fun Rating.toParcelable(): RatingParcelable {
+    val longUserRatings = userRatings.mapValues { (it.value as? Number)?.toLong() ?: 0L }
+    return RatingParcelable(average, brRatings, longUserRatings)
+}
+fun WorkoutPark.toParcelable(): WorkoutParkParcelable {
+    return WorkoutParkParcelable(id, name, opis, latituda, longituda, rating.toParcelable(), createdBy, challenges.mapValues { it.value.toParcelable() })
+}
+fun Challenge.toParcelable(): ChallengeParcelable {
+    return ChallengeParcelable(bestUser, bestScore)
+}
+fun RatingParcelable.toOriginal(): Rating {
+    return Rating(average, brRatings, userRatings)
+}
+fun WorkoutParkParcelable.toOriginal(): WorkoutPark {
+    return WorkoutPark(id, name, opis, latituda, longituda, rating.toOriginal(), createdBy, challenges = challenges.mapValues { it.value.toOriginal() })
+}
+fun ChallengeParcelable.toOriginal(): Challenge {
+    return Challenge(bestUser, bestScore)
+}
 
 @Composable
 fun AppNavHost() {
@@ -15,7 +50,6 @@ fun AppNavHost() {
 
     NavHost(navController = navController, startDestination = "login") {
 
-        // 🔹 VRAĆENA RUTA ZA LOGIN
         composable("login") {
             LoginScreen(
                 onLoginSuccess = {
@@ -23,13 +57,9 @@ fun AppNavHost() {
                         popUpTo("login") { inclusive = true }
                     }
                 },
-                onNavigateToRegister = {
-                    navController.navigate("register")
-                }
+                onNavigateToRegister = { navController.navigate("register") }
             )
         }
-
-        // 🔹 VRAĆENA RUTA ZA REGISTER
         composable("register") {
             RegisterScreen(
                 onRegisterSuccess = { navController.popBackStack() },
@@ -37,7 +67,6 @@ fun AppNavHost() {
             )
         }
 
-        // RUTA ZA LISTU PARKOVA
         composable("parkList") {
             ParkListScreen(
                 onBack = { navController.popBackStack() },
@@ -47,7 +76,6 @@ fun AppNavHost() {
             )
         }
 
-        // RUTA ZA MAPU
         composable(
             route = "map?lat={lat}&lng={lng}",
             arguments = listOf(
@@ -57,45 +85,29 @@ fun AppNavHost() {
         ) { backStackEntry ->
             val lat = backStackEntry.arguments?.getString("lat")?.toDoubleOrNull()
             val lng = backStackEntry.arguments?.getString("lng")?.toDoubleOrNull()
-
             MapScreen(
                 navController = navController,
                 initialLat = lat,
                 initialLng = lng,
-                onParkClick = { park: WorkoutPark ->
-                    val encodedName = URLEncoder.encode(park.name, "UTF-8")
-                    val encodedOpis = URLEncoder.encode(park.opis, "UTF-8")
-                    val route = "parkDetail/$encodedName/${park.latituda}/${park.longituda}/${park.rating}/$encodedOpis"
-                    navController.navigate(route)
+                onParkClick = { park ->
+                    navController.currentBackStackEntry?.savedStateHandle?.set("park", park.toParcelable())
+                    navController.navigate("parkDetail")
                 }
             )
         }
 
-        // RUTA ZA DETALJE PARKA
-        composable(
-            route = "parkDetail/{name}/{lat}/{lng}/{rating}/{opis}",
-            arguments = listOf(
-                navArgument("name") { type = NavType.StringType },
-                navArgument("lat") { type = NavType.StringType },
-                navArgument("lng") { type = NavType.StringType },
-                navArgument("rating") { type = NavType.StringType },
-                navArgument("opis") { type = NavType.StringType }
-            )
-        ) { backStackEntry ->
-            val name = URLDecoder.decode(backStackEntry.arguments?.getString("name") ?: "", "UTF-8")
-            val opis = URLDecoder.decode(backStackEntry.arguments?.getString("opis") ?: "", "UTF-8")
-            val lat = backStackEntry.arguments?.getString("lat")?.toDoubleOrNull() ?: 0.0
-            val lng = backStackEntry.arguments?.getString("lng")?.toDoubleOrNull() ?: 0.0
-            val rating = backStackEntry.arguments?.getString("rating")?.toFloatOrNull() ?: 0f
+        composable("parkDetail") {
+            val parkParcelable = navController.previousBackStackEntry?.savedStateHandle?.get<WorkoutParkParcelable>("park")
+            if (parkParcelable != null) {
+                ParkDetailScreen(
+                    park = parkParcelable.toOriginal(),
+                    onBack = { navController.popBackStack() }
+                )
+            }
+        }
 
-            ParkDetailScreen(
-                parkName = name,
-                parkDescription = opis,
-                parkRating = rating,
-                parkLat = lat,
-                parkLng = lng,
-                onBack = { navController.popBackStack() }
-            )
+        composable("leaderboard") {
+            LeaderboardScreen(onBack = { navController.popBackStack() })
         }
     }
 }

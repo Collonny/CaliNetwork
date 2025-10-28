@@ -5,22 +5,24 @@ import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.input.PasswordVisualTransformation
-import androidx.compose.ui.unit.dp
 import androidx.compose.ui.tooling.preview.Preview
+import androidx.compose.ui.unit.dp
 import com.google.firebase.Timestamp
 import com.google.firebase.auth.FirebaseAuth
 import com.google.firebase.firestore.FirebaseFirestore
-import com.example.myapplication.services.CloudinaryService
 import android.graphics.BitmapFactory
-import androidx.compose.ui.draw.clip
+// import com.example.myapplication.services.CloudinaryService // Pretpostavljam da je ovo putanja
 
 @Composable
 fun RegisterScreen(
@@ -52,92 +54,39 @@ fun RegisterScreen(
     Column(
         modifier = Modifier
             .fillMaxSize()
-            .padding(32.dp),
+            .padding(32.dp)
+            .verticalScroll(rememberScrollState()),
         horizontalAlignment = Alignment.CenterHorizontally,
         verticalArrangement = Arrangement.Center
     ) {
         Text("Registracija", style = MaterialTheme.typography.headlineMedium)
-
         Spacer(modifier = Modifier.height(16.dp))
 
-        // Ime i prezime
-        OutlinedTextField(
-            value = fullName,
-            onValueChange = { fullName = it },
-            label = { Text("Ime i prezime") },
-            modifier = Modifier.fillMaxWidth()
-        )
-
+        OutlinedTextField(value = fullName, onValueChange = { fullName = it }, label = { Text("Ime i prezime") }, modifier = Modifier.fillMaxWidth())
         Spacer(modifier = Modifier.height(8.dp))
-
-        // Broj telefona
-        OutlinedTextField(
-            value = phoneNumber,
-            onValueChange = { phoneNumber = it },
-            label = { Text("Broj telefona") },
-            modifier = Modifier.fillMaxWidth()
-        )
-
+        OutlinedTextField(value = phoneNumber, onValueChange = { phoneNumber = it }, label = { Text("Broj telefona") }, modifier = Modifier.fillMaxWidth())
         Spacer(modifier = Modifier.height(8.dp))
-
-        // Email
-        OutlinedTextField(
-            value = email,
-            onValueChange = { email = it },
-            label = { Text("Email") },
-            modifier = Modifier.fillMaxWidth()
-        )
-
+        OutlinedTextField(value = email, onValueChange = { email = it }, label = { Text("Email") }, modifier = Modifier.fillMaxWidth())
         Spacer(modifier = Modifier.height(8.dp))
-
-        // Lozinka
-        OutlinedTextField(
-            value = password,
-            onValueChange = { password = it },
-            label = { Text("Lozinka") },
-            visualTransformation = PasswordVisualTransformation(),
-            modifier = Modifier.fillMaxWidth()
-        )
-
+        OutlinedTextField(value = password, onValueChange = { password = it }, label = { Text("Lozinka") }, visualTransformation = PasswordVisualTransformation(), modifier = Modifier.fillMaxWidth())
         Spacer(modifier = Modifier.height(8.dp))
-
-        // Potvrda lozinke
-        OutlinedTextField(
-            value = confirmPassword,
-            onValueChange = { confirmPassword = it },
-            label = { Text("Potvrdi lozinku") },
-            visualTransformation = PasswordVisualTransformation(),
-            modifier = Modifier.fillMaxWidth()
-        )
-
+        OutlinedTextField(value = confirmPassword, onValueChange = { confirmPassword = it }, label = { Text("Potvrdi lozinku") }, visualTransformation = PasswordVisualTransformation(), modifier = Modifier.fillMaxWidth())
         Spacer(modifier = Modifier.height(16.dp))
 
-        // Upload slike
-        photoBitmap?.let { bitmap ->
-            Image(
-                bitmap = bitmap.asImageBitmap(),
-                contentDescription = "Izabrana fotografija",
-                modifier = Modifier
-                    .size(120.dp)
-                    .clip(CircleShape)
-            )
+        photoBitmap?.let {
+            Image(bitmap = it.asImageBitmap(), contentDescription = "Izabrana fotografija", modifier = Modifier.size(120.dp).clip(CircleShape))
             Spacer(modifier = Modifier.height(8.dp))
         }
 
-        Button(
-            onClick = { launcher.launch("image/*") },
-            modifier = Modifier.fillMaxWidth()
-        ) {
+        Button(onClick = { launcher.launch("image/*") }, modifier = Modifier.fillMaxWidth()) {
             Text("Izaberi fotografiju")
         }
-
         Spacer(modifier = Modifier.height(16.dp))
 
-        // Registracija
         Button(
             onClick = {
-                if (fullName.isEmpty() || email.isEmpty() || password.isEmpty() || confirmPassword.isEmpty()) {
-                    errorMessage = "Molimo popunite sva polja"
+                if (fullName.isBlank() || email.isBlank() || password.isBlank()) {
+                    errorMessage = "Molimo popunite sva obavezna polja"
                     return@Button
                 }
                 if (password != confirmPassword) {
@@ -146,41 +95,42 @@ fun RegisterScreen(
                 }
 
                 isLoading = true
+                errorMessage = null
 
-                // Registracija Firebase Auth
-                FirebaseAuth.getInstance()
-                    .createUserWithEmailAndPassword(email, password)
+                FirebaseAuth.getInstance().createUserWithEmailAndPassword(email, password)
                     .addOnCompleteListener { authTask ->
                         if (authTask.isSuccessful) {
                             val userId = FirebaseAuth.getInstance().currentUser?.uid ?: ""
-                            if (photoUri != null) {
-                                // Upload slike na Cloudinary
-                                CloudinaryService.uploadImage(photoUri!!) { imageUrl ->
-                                    saveUserToFirestore(
-                                        userId, fullName, email, phoneNumber, imageUrl, onRegisterSuccess
-                                    )
+                            // Privremeno rešenje bez Cloudinary-ja
+                            saveUserToFirestore(
+                                userId = userId,
+                                fullName = fullName,
+                                email = email,
+                                phoneNumber = phoneNumber,
+                                photoUrl = "", // Privremeno prazno
+                                onSuccess = {
+                                    isLoading = false
+                                    onRegisterSuccess()
+                                },
+                                onFailure = {
+                                    errorMessage = it.message
+                                    isLoading = false
                                 }
-                            } else {
-                                saveUserToFirestore(
-                                    userId, fullName, email, phoneNumber, "", onRegisterSuccess
-                                )
-                            }
+                            )
                         } else {
                             errorMessage = authTask.exception?.message
                             isLoading = false
                         }
                     }
             },
+            enabled = !isLoading,
             modifier = Modifier.fillMaxWidth()
         ) {
             Text("Registruj se")
         }
 
         Spacer(modifier = Modifier.height(8.dp))
-
-        TextButton(onClick = onCancel) {
-            Text("Nazad na prijavu")
-        }
+        TextButton(onClick = onCancel) { Text("Nazad na prijavu") }
 
         errorMessage?.let {
             Spacer(modifier = Modifier.height(8.dp))
@@ -200,7 +150,8 @@ private fun saveUserToFirestore(
     email: String,
     phoneNumber: String,
     photoUrl: String,
-    onRegisterSuccess: () -> Unit
+    onSuccess: () -> Unit,
+    onFailure: (Exception) -> Unit
 ) {
     val userData = hashMapOf(
         "Ime" to fullName,
@@ -208,15 +159,13 @@ private fun saveUserToFirestore(
         "phoneNumber" to phoneNumber,
         "photoUrl" to photoUrl,
         "points" to 0,
-        "createdAt" to Timestamp.now(),
-        "lastLocation" to hashMapOf("lat" to 0.0, "lng" to 0.0)
+        "createdAt" to Timestamp.now()
     )
 
-    FirebaseFirestore.getInstance().collection("users")
-        .document(userId)
+    FirebaseFirestore.getInstance().collection("users").document(userId)
         .set(userData)
-        .addOnSuccessListener { onRegisterSuccess() }
-        .addOnFailureListener { e -> println("Greška pri čuvanju korisnika: ${e.message}") }
+        .addOnSuccessListener { onSuccess() }
+        .addOnFailureListener { onFailure(it) }
 }
 
 @Preview(showBackground = true)

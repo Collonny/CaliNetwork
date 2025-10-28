@@ -7,6 +7,10 @@ import android.os.Build
 import androidx.core.app.NotificationCompat
 import androidx.core.app.NotificationManagerCompat
 
+// 🔹 DODATO
+import com.example.myapplication.UserLocation
+import com.example.myapplication.WorkoutPark
+
 object NotificationHelper {
 
     private const val CHANNEL_ID = "park_proximity_channel"
@@ -38,13 +42,12 @@ object NotificationHelper {
         }
     }
 
-    // 🔹 NOVA FUNKCIJA za notifikacije o korisnicima
     fun showUserNotification(context: Context, otherUser: UserLocation) {
         val notificationId = otherUser.userId.hashCode()
         val builder = NotificationCompat.Builder(context, CHANNEL_ID)
             .setSmallIcon(R.drawable.ic_launcher_foreground) 
             .setContentTitle("Korisnik u blizini!")
-            .setContentText("Nalazite se u blizini korisnika: ${otherUser.username}") // Pretpostavljamo da username postoji
+            .setContentText("Nalazite se u blizini korisnika: ${otherUser.username}")
             .setPriority(NotificationCompat.PRIORITY_DEFAULT)
             .setAutoCancel(true)
 

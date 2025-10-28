@@ -8,9 +8,12 @@ import android.widget.Toast
 import androidx.compose.foundation.layout.*
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
+import androidx.compose.material.icons.filled.FilterList
+import androidx.compose.material.icons.filled.Leaderboard
 import androidx.compose.material.icons.filled.List
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
@@ -41,12 +44,31 @@ fun MapScreen(
     var workoutParks by remember { mutableStateOf(listOf<WorkoutPark>()) }
     var otherUsers by remember { mutableStateOf(listOf<UserLocation>()) }
     var userLocation by remember { mutableStateOf<LatLng?>(null) }
+    var nearbyPark by remember { mutableStateOf<WorkoutPark?>(null) }
     var showAddParkDialog by remember { mutableStateOf(false) }
+    var showAddRecordDialog by remember { mutableStateOf(false) }
     val notifiedParks = remember { mutableStateListOf<String>() }
     val notifiedUsers = remember { mutableStateListOf<String>() }
+    var showFilterMenu by remember { mutableStateOf(false) }
+    var selectedDistance by remember { mutableStateOf<Int?>(null) }
 
     val cameraPositionState = rememberCameraPositionState {
         position = CameraPosition.fromLatLngZoom(LatLng(43.3209, 21.8958), 13f)
+    }
+
+    val filteredParks = remember(selectedDistance, workoutParks, userLocation) {
+        if (selectedDistance == null || userLocation == null) {
+            workoutParks
+        } else {
+            val userAndroidLocation = Location("").apply {
+                latitude = userLocation!!.latitude
+                longitude = userLocation!!.longitude
+            }
+            workoutParks.filter {
+                val parkLocation = Location("").apply { latitude = it.latituda; longitude = it.longituda }
+                userAndroidLocation.distanceTo(parkLocation) <= selectedDistance!!
+            }
+        }
     }
 
     // --- Dozvole ---
@@ -59,7 +81,7 @@ fun MapScreen(
         locationPermissionState.launchPermissionRequest()
         notificationPermissionState?.launchPermissionRequest()
     }
-    
+
     // --- Pomeranje kamere na prosleđenu lokaciju ---
     LaunchedEffect(initialLat, initialLng) {
         if (initialLat != null && initialLng != null) {
@@ -94,6 +116,11 @@ fun MapScreen(
         val userAndroidLocation = Location("").apply {
             latitude = userLocation!!.latitude
             longitude = userLocation!!.longitude
+        }
+
+        nearbyPark = workoutParks.firstOrNull { park ->
+            val parkLocation = Location("").apply { latitude = park.latituda; longitude = park.longituda }
+            userAndroidLocation.distanceTo(parkLocation) < 200
         }
 
         workoutParks.forEach { park ->
@@ -141,6 +168,22 @@ fun MapScreen(
                     IconButton(onClick = { navController.navigate("parkList") }) {
                         Icon(Icons.Filled.List, contentDescription = "Lista parkova")
                     }
+                    Box {
+                        IconButton(onClick = { showFilterMenu = true }) {
+                            Icon(Icons.Filled.FilterList, contentDescription = "Filter")
+                        }
+                        DropdownMenu(
+                            expanded = showFilterMenu,
+                            onDismissRequest = { showFilterMenu = false }
+                        ) {
+                            DropdownMenuItem(text = { Text("Prikaži sve") }, onClick = { selectedDistance = null; showFilterMenu = false })
+                            DropdownMenuItem(text = { Text("Do 1 km") }, onClick = { selectedDistance = 1000; showFilterMenu = false })
+                            DropdownMenuItem(text = { Text("Do 5 km") }, onClick = { selectedDistance = 5000; showFilterMenu = false })
+                        }
+                    }
+                    IconButton(onClick = { navController.navigate("leaderboard") }) {
+                        Icon(Icons.Filled.Leaderboard, contentDescription = "Rang Lista")
+                    }
                 }
             )
         },
@@ -156,32 +199,41 @@ fun MapScreen(
             }
         }
     ) { paddingValues ->
-        GoogleMap(
-            modifier = Modifier.fillMaxSize().padding(paddingValues),
-            cameraPositionState = cameraPositionState,
-            properties = MapProperties(isMyLocationEnabled = locationPermissionState.status.isGranted)
-        ) {
-            // Markeri za parkove
-            workoutParks.forEach { park ->
-                MarkerInfoWindowContent(
-                    state = MarkerState(position = LatLng(park.latituda, park.longituda)),
-                    title = park.name,
-                    snippet = "Klikni za detalje",
-                    onInfoWindowClick = { onParkClick(park) }
-                ) {
-                    Column(modifier = Modifier.padding(8.dp)) {
-                        Text(text = park.name, style = MaterialTheme.typography.titleMedium)
-                        Spacer(modifier = Modifier.height(4.dp))
-                        Text(text = park.opis)
+        Box(modifier = Modifier.fillMaxSize().padding(paddingValues)){
+            GoogleMap(
+                modifier = Modifier.fillMaxSize(),
+                cameraPositionState = cameraPositionState,
+                properties = MapProperties(isMyLocationEnabled = locationPermissionState.status.isGranted)
+            ) {
+                filteredParks.forEach { park ->
+                    MarkerInfoWindowContent(
+                        state = MarkerState(position = LatLng(park.latituda, park.longituda)),
+                        title = park.name,
+                        snippet = "Klikni za detalje",
+                        onInfoWindowClick = { onParkClick(park) }
+                    ) {
+                        Column(modifier = Modifier.padding(8.dp)) {
+                            Text(text = park.name, style = MaterialTheme.typography.titleMedium)
+                            Spacer(modifier = Modifier.height(4.dp))
+                            Text(text = park.opis)
+                        }
                     }
                 }
+                otherUsers.forEach { user ->
+                    Marker(
+                        state = MarkerState(position = LatLng(user.latitude, user.longitude)),
+                        title = user.username
+                    )
+                }
             }
-            // Markeri za druge korisnike
-            otherUsers.forEach { user ->
-                Marker(
-                    state = MarkerState(position = LatLng(user.latitude, user.longitude)),
-                    title = user.username
-                )
+
+            if (nearbyPark != null) {
+                Button(
+                    onClick = { showAddRecordDialog = true },
+                    modifier = Modifier.align(Alignment.BottomCenter).padding(16.dp)
+                ) {
+                    Text("Dodaj Rekord za ${nearbyPark!!.name}")
+                }
             }
         }
 
@@ -205,6 +257,21 @@ fun MapScreen(
                             }
                         )
                     }
+                }
+            )
+        }
+
+        if (showAddRecordDialog && nearbyPark != null && currentUserId != null) {
+            AddRecordDialog(
+                park = nearbyPark!!,
+                userId = currentUserId,
+                onDismiss = { showAddRecordDialog = false },
+                onConfirm = { record ->
+                    FirestoreService.addRecord(record, 
+                        onSuccess = { Toast.makeText(context, "Rekord uspešno dodat!", Toast.LENGTH_SHORT).show() },
+                        onError = { Toast.makeText(context, "Greška: ${it.message}", Toast.LENGTH_SHORT).show() }
+                    )
+                    showAddRecordDialog = false
                 }
             )
         }
@@ -251,5 +318,72 @@ private fun AddParkDialog(
                 Text("Odustani")
             }
         }
+    )
+}
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun AddRecordDialog(
+    park: WorkoutPark,
+    userId: String,
+    onDismiss: () -> Unit,
+    onConfirm: (UserRecord) -> Unit
+) {
+    val exercises = park.challenges.keys.toList()
+    var expanded by remember { mutableStateOf(false) }
+    var selectedExercise by remember { mutableStateOf(exercises.firstOrNull() ?: "") }
+    var score by remember { mutableStateOf("") }
+
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("Dodaj novi rekord") },
+        text = {
+            Column {
+                ExposedDropdownMenuBox(
+                    expanded = expanded,
+                    onExpandedChange = { expanded = !expanded }
+                ) {
+                    OutlinedTextField(
+                        value = selectedExercise,
+                        onValueChange = {},
+                        readOnly = true,
+                        label = { Text("Vežba") },
+                        trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded = expanded) },
+                        modifier = Modifier.menuAnchor()
+                    )
+                    ExposedDropdownMenu(
+                        expanded = expanded,
+                        onDismissRequest = { expanded = false }
+                    ) {
+                        exercises.forEach { exercise ->
+                            DropdownMenuItem(
+                                text = { Text(exercise) },
+                                onClick = {
+                                    selectedExercise = exercise
+                                    expanded = false
+                                }
+                            )
+                        }
+                    }
+                }
+
+                Spacer(modifier = Modifier.height(8.dp))
+
+                OutlinedTextField(
+                    value = score,
+                    onValueChange = { score = it },
+                    label = { Text("Rezultat") }
+                )
+            }
+        },
+        confirmButton = {
+            Button(onClick = {
+                val scoreLong = score.toLongOrNull()
+                if (scoreLong != null && selectedExercise.isNotBlank()) {
+                    onConfirm(UserRecord(userId, park.id, selectedExercise, scoreLong, com.google.firebase.Timestamp.now()))
+                }
+            }) { Text("Dodaj") }
+        },
+        dismissButton = { Button(onClick = onDismiss) { Text("Odustani") } }
     )
 }
