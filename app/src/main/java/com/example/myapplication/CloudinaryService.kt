@@ -15,11 +15,10 @@ object CloudinaryService {
     fun initialize(context: Context) {
         if (isInitialized) return
         try {
-            // 🔹 VAŽNO: Unesite vaše stvarne podatke ovde
             val config = mapOf(
-                "cloud_name" to "dzh1lsvcm", // 🔹 ZAMENITE OVO
-                "api_key" to "749362658272874",     // 🔹 ZAMENITE OVO
-                "api_secret" to "ln6_wH9Ymv8BOS3rXgp-ueb-Pdo" // 🔹 ZAMENITE OVO
+                "cloud_name" to "dzh1lsvcm",
+                "api_key" to "435948132225333",
+                "api_secret" to "2T6T5UuG_Gv94AH25a2n5Jz3C-s"
             )
             MediaManager.init(context, config)
             isInitialized = true
@@ -42,19 +41,17 @@ object CloudinaryService {
                     Log.d(TAG, "Upload started for requestId: $requestId")
                 }
 
-                override fun onProgress(requestId: String?, bytes: Long, totalBytes: Long) {
-                    Log.d(TAG, "Upload progress for $requestId: $bytes/$totalBytes")
-                }
+                override fun onProgress(requestId: String?, bytes: Long, totalBytes: Long) {}
 
                 override fun onSuccess(requestId: String?, resultData: MutableMap<Any?, Any?>?) {
-                    val url = resultData?.get("url") as? String ?: ""
-                    Log.d(TAG, "Upload successful for $requestId. URL: $url")
+                    val url = resultData?.get("secure_url") as? String ?: ""
+                    Log.d(TAG, "Upload successful for $requestId. Secure URL: $url")
                     onResult(url)
                 }
 
                 override fun onError(requestId: String?, error: ErrorInfo?) {
                     Log.e(TAG, "Upload failed for $requestId. Error: ${error?.description}")
-                    onResult("") // Vraćamo prazan string u slučaju greške
+                    onResult("")
                 }
 
                 override fun onReschedule(requestId: String?, error: ErrorInfo?) {

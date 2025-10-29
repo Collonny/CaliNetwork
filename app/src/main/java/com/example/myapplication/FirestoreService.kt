@@ -6,8 +6,19 @@ import com.google.firebase.firestore.FirebaseFirestore
 import com.google.firebase.firestore.ListenerRegistration
 import com.google.firebase.firestore.PropertyName
 import com.google.firebase.firestore.SetOptions
+import kotlinx.coroutines.async
+import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.tasks.await
 
+// --- DATA KLASE ---
+
+data class User(
+    @get:PropertyName("Ime") @set:PropertyName("Ime") var name: String = "",
+    val email: String = "",
+    val phoneNumber: String = "",
+    val photoUrl: String = "",
+    val points: Long = 0
+) { constructor() : this("", "", "", "", 0) }
 
 data class Challenge(
     @get:PropertyName("bestUser") @set:PropertyName("bestUser") var bestUser: String = "",
@@ -57,6 +68,13 @@ data class LeaderboardEntry(
     val totalScore: Long
 )
 
+data class UserProfileData(
+    val user: User,
+    val createdParks: List<WorkoutPark>,
+    val userRecords: List<UserRecord>
+)
+
+// --- SERVIS ---
 object FirestoreService {
     private val db = FirebaseFirestore.getInstance()
 
@@ -155,6 +173,24 @@ object FirestoreService {
         } catch (e: Exception) {
             println("Greška pri preuzimanju podataka za rang listu: ${e.message}")
             return emptyList()
+        }
+    }
+
+    suspend fun getUserProfileData(userId: String): UserProfileData? = coroutineScope {
+        try {
+            val userDeferred = async { db.collection("users").document(userId).get().await() }
+            val parksDeferred = async { db.collection("workout_park").whereEqualTo("createdBy", userId).get().await() }
+            val recordsDeferred = async { db.collection("records").whereEqualTo("userId", userId).get().await() }
+
+            val userDoc = userDeferred.await()
+            val user = userDoc.toObject(User::class.java) ?: return@coroutineScope null
+
+            val createdParks = parksDeferred.await().toObjects(WorkoutPark::class.java)
+            val userRecords = recordsDeferred.await().toObjects(UserRecord::class.java)
+
+            UserProfileData(user, createdParks, userRecords.sortedByDescending { it.timestamp })
+        } catch (e: Exception) {
+            null
         }
     }
 }

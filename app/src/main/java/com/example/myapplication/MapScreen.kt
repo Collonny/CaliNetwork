@@ -8,11 +8,7 @@ import android.util.Log
 import android.widget.Toast
 import androidx.compose.foundation.layout.*
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.Add
-import androidx.compose.material.icons.filled.FilterList
-import androidx.compose.material.icons.filled.Leaderboard
-import androidx.compose.material.icons.filled.List
-import androidx.compose.material.icons.filled.ExitToApp
+import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -148,11 +144,35 @@ fun MapScreen(
         locationPermissionState.launchPermissionRequest()
     }
 
+    LaunchedEffect(userLocation, workoutParks) {
+        if (userLocation == null) return@LaunchedEffect
+        val userAndroidLocation = Location("").apply {
+            latitude = userLocation!!.latitude
+            longitude = userLocation!!.longitude
+        }
+
+        nearbyPark = workoutParks.firstOrNull { park ->
+            val parkLocation = Location("").apply { latitude = park.latituda; longitude = park.longituda }
+            userAndroidLocation.distanceTo(parkLocation) < 200
+        }
+
+        workoutParks.forEach { park ->
+            val parkLocation = Location("").apply { latitude = park.latituda; longitude = park.longituda }
+            if (userAndroidLocation.distanceTo(parkLocation) < 200 && !notifiedParks.contains(park.name)) {
+                NotificationHelper.showParkNotification(context, park)
+                notifiedParks.add(park.name)
+            }
+        }
+    }
+
     Scaffold(
         topBar = {
             TopAppBar(
                 title = { Text("Mapa Parkova") },
                 actions = {
+                    IconButton(onClick = { navController.navigate("profile") }) {
+                        Icon(Icons.Filled.Person, contentDescription = "Profil")
+                    }
                     IconButton(onClick = { navController.navigate("parkList") }) {
                         Icon(Icons.Filled.List, contentDescription = "Lista parkova")
                     }

@@ -8,9 +8,8 @@ import androidx.navigation.compose.composable
 import androidx.navigation.compose.rememberNavController
 import androidx.navigation.navArgument
 import kotlinx.parcelize.Parcelize
-import java.net.URLDecoder
-import java.net.URLEncoder
 
+// 🔹 AŽURIRANE PARCELABLE KLASE
 @Parcelize
 data class RatingParcelable(val average: Double, val brRatings: Long, val userRatings: Map<String, Long>) : Parcelable
 
@@ -24,7 +23,7 @@ data class WorkoutParkParcelable(
 @Parcelize
 data class ChallengeParcelable(val bestUser: String, val bestScore: Long) : Parcelable
 
-
+// 🔹 AŽURIRANE POMOĆNE FUNKCIJE
 fun Rating.toParcelable(): RatingParcelable {
     val longUserRatings = userRatings.mapValues { (it.value as? Number)?.toLong() ?: 0L }
     return RatingParcelable(average, brRatings, longUserRatings)
@@ -113,6 +112,10 @@ fun AppNavHost() {
 
         composable("leaderboard") {
             LeaderboardScreen(onBack = { navController.popBackStack() })
+        }
+
+        composable("profile") {
+            ProfileScreen(onBack = { navController.popBackStack() })
         }
     }
 }
