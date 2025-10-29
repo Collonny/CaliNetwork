@@ -1,6 +1,10 @@
 package com.example.myapplication
 
+import android.Manifest
+import android.content.Context
+import android.graphics.BitmapFactory
 import android.net.Uri
+import android.util.Log
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.Image
@@ -18,18 +22,23 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
+import androidx.core.content.FileProvider
+import com.google.accompanist.permissions.ExperimentalPermissionsApi
+import com.google.accompanist.permissions.isGranted
+import com.google.accompanist.permissions.rememberPermissionState
 import com.google.firebase.Timestamp
 import com.google.firebase.auth.FirebaseAuth
 import com.google.firebase.firestore.FirebaseFirestore
-import android.graphics.BitmapFactory
-// import com.example.myapplication.services.CloudinaryService // Pretpostavljam da je ovo putanja
+import java.io.File
 
+@OptIn(ExperimentalPermissionsApi::class)
 @Composable
 fun RegisterScreen(
     onRegisterSuccess: () -> Unit,
     onCancel: () -> Unit
 ) {
     val context = LocalContext.current
+    var tempImageUri by remember { mutableStateOf<Uri?>(null) }
 
     var fullName by remember { mutableStateOf("") }
     var phoneNumber by remember { mutableStateOf("") }
@@ -40,22 +49,34 @@ fun RegisterScreen(
     var photoBitmap by remember { mutableStateOf<android.graphics.Bitmap?>(null) }
     var errorMessage by remember { mutableStateOf<String?>(null) }
     var isLoading by remember { mutableStateOf(false) }
+    var showImageSourceDialog by remember { mutableStateOf(false) }
 
-    val launcher = rememberLauncherForActivityResult(
-        contract = ActivityResultContracts.GetContent()
-    ) { uri: Uri? ->
-        if (uri != null) {
-            photoUri = uri
-            val inputStream = context.contentResolver.openInputStream(uri)
-            photoBitmap = BitmapFactory.decodeStream(inputStream)
+    val cameraPermissionState = rememberPermissionState(Manifest.permission.CAMERA)
+
+    val galleryLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.GetContent(),
+        onResult = { uri ->
+            if (uri != null) {
+                photoUri = uri
+                context.contentResolver.openInputStream(uri)?.use { photoBitmap = BitmapFactory.decodeStream(it) }
+            }
         }
-    }
+    )
+
+    val cameraLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.TakePicture(),
+        onResult = { success ->
+            if (success) {
+                tempImageUri?.let {
+                    photoUri = it
+                    context.contentResolver.openInputStream(it)?.use { photoBitmap = BitmapFactory.decodeStream(it) }
+                }
+            }
+        }
+    )
 
     Column(
-        modifier = Modifier
-            .fillMaxSize()
-            .padding(32.dp)
-            .verticalScroll(rememberScrollState()),
+        modifier = Modifier.fillMaxSize().padding(32.dp).verticalScroll(rememberScrollState()),
         horizontalAlignment = Alignment.CenterHorizontally,
         verticalArrangement = Arrangement.Center
     ) {
@@ -78,7 +99,7 @@ fun RegisterScreen(
             Spacer(modifier = Modifier.height(8.dp))
         }
 
-        Button(onClick = { launcher.launch("image/*") }, modifier = Modifier.fillMaxWidth()) {
+        Button(onClick = { showImageSourceDialog = true }, modifier = Modifier.fillMaxWidth()) {
             Text("Izaberi fotografiju")
         }
         Spacer(modifier = Modifier.height(16.dp))
@@ -101,22 +122,36 @@ fun RegisterScreen(
                     .addOnCompleteListener { authTask ->
                         if (authTask.isSuccessful) {
                             val userId = FirebaseAuth.getInstance().currentUser?.uid ?: ""
-                            // Privremeno rešenje bez Cloudinary-ja
-                            saveUserToFirestore(
-                                userId = userId,
-                                fullName = fullName,
-                                email = email,
-                                phoneNumber = phoneNumber,
-                                photoUrl = "", // Privremeno prazno
-                                onSuccess = {
-                                    isLoading = false
-                                    onRegisterSuccess()
-                                },
-                                onFailure = {
-                                    errorMessage = it.message
-                                    isLoading = false
+                            
+                            if (photoUri != null) {
+                                CloudinaryService.uploadImage(photoUri!!) { imageUrl ->
+                                    saveUserToFirestore(
+                                        userId = userId, 
+                                        fullName = fullName, 
+                                        email = email,
+                                        phoneNumber = phoneNumber,
+                                        photoUrl = imageUrl,
+                                        onSuccess = { isLoading = false; onRegisterSuccess() },
+                                        onFailure = { e -> 
+                                            errorMessage = "Greška pri kreiranju korisničkog profila: ${e.message}"
+                                            isLoading = false
+                                        }
+                                    )
                                 }
-                            )
+                            } else {
+                                saveUserToFirestore(
+                                    userId = userId, 
+                                    fullName = fullName, 
+                                    email = email,
+                                    phoneNumber = phoneNumber,
+                                    photoUrl = "",
+                                    onSuccess = { isLoading = false; onRegisterSuccess() },
+                                    onFailure = { e -> 
+                                        errorMessage = "Greška pri kreiranju korisničkog profila: ${e.message}"
+                                        isLoading = false
+                                    }
+                                )
+                            }
                         } else {
                             errorMessage = authTask.exception?.message
                             isLoading = false
@@ -142,6 +177,40 @@ fun RegisterScreen(
             CircularProgressIndicator()
         }
     }
+
+    if (showImageSourceDialog) {
+        AlertDialog(
+            onDismissRequest = { showImageSourceDialog = false },
+            title = { Text("Izvor slike") },
+            text = { Text("Izaberite odakle želite da dodate sliku.") },
+            confirmButton = {
+                Button(onClick = {
+                    showImageSourceDialog = false
+                    if (cameraPermissionState.status.isGranted) {
+                        tempImageUri = createImageUri(context)
+                        cameraLauncher.launch(tempImageUri)
+                    } else {
+                        cameraPermissionState.launchPermissionRequest()
+                    }
+                }) {
+                    Text("Kamera")
+                }
+            },
+            dismissButton = {
+                Button(onClick = {
+                    showImageSourceDialog = false
+                    galleryLauncher.launch("image/*")
+                }) {
+                    Text("Galerija")
+                }
+            }
+        )
+    }
+}
+
+private fun createImageUri(context: Context): Uri {
+    val imageFile = File.createTempFile("JPEG_${System.currentTimeMillis()}_", ".jpg", context.externalCacheDir)
+    return FileProvider.getUriForFile(context, "${context.packageName}.provider", imageFile)
 }
 
 private fun saveUserToFirestore(

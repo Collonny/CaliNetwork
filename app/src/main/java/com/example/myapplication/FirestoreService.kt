@@ -8,7 +8,6 @@ import com.google.firebase.firestore.PropertyName
 import com.google.firebase.firestore.SetOptions
 import kotlinx.coroutines.tasks.await
 
-// --- DATA KLASE ---
 
 data class Challenge(
     @get:PropertyName("bestUser") @set:PropertyName("bestUser") var bestUser: String = "",
@@ -58,11 +57,16 @@ data class LeaderboardEntry(
     val totalScore: Long
 )
 
-// --- SERVIS ---
 object FirestoreService {
     private val db = FirebaseFirestore.getInstance()
 
     fun getWorkoutParks(onResult: (List<WorkoutPark>) -> Unit, onError: (Exception) -> Unit): ListenerRegistration {
+        val currentUser = FirebaseAuth.getInstance().currentUser
+        if (currentUser == null) {
+            onError(Exception("Korisnik nije ulogovan."))
+            return ListenerRegistration { }
+        }
+
         return db.collection("workout_park").addSnapshotListener { snapshot, error ->
             if (error != null) { onError(error); return@addSnapshotListener }
             val parks = snapshot?.documents?.mapNotNull { doc ->
@@ -75,14 +79,6 @@ object FirestoreService {
     fun updateUserLocation(userId: String, lat: Double, lng: Double) {
         val locationData = mapOf("userId" to userId, "latitude" to lat, "longitude" to lng, "lastUpdated" to Timestamp.now())
         db.collection("user_locations").document(userId).set(locationData, SetOptions.merge())
-    }
-
-    fun listenForOtherUsers(currentUserId: String, onResult: (List<UserLocation>) -> Unit, onError: (Exception) -> Unit): ListenerRegistration {
-        return db.collection("user_locations").whereNotEqualTo("userId", currentUserId).addSnapshotListener { snapshot, error ->
-            if (error != null) { onError(error); return@addSnapshotListener }
-            val users = snapshot?.toObjects(UserLocation::class.java) ?: emptyList()
-            onResult(users)
-        }
     }
 
     fun addRecord(record: UserRecord, onSuccess: () -> Unit, onError: (Exception) -> Unit) {

@@ -1,0 +1,5 @@
+<?xml version="1.0" encoding="utf-8"?>
+<paths>
+    <!-- 🔹 ISPRAVKA: Koristimo path="." da označimo ceo keš direktorijum -->
+    <external-cache-path name="my_images" path="." />
+</paths>

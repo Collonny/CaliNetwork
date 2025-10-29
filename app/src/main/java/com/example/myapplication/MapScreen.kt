@@ -4,6 +4,7 @@ import android.Manifest
 import android.annotation.SuppressLint
 import android.location.Location
 import android.os.Build
+import android.util.Log
 import android.widget.Toast
 import androidx.compose.foundation.layout.*
 import androidx.compose.material.icons.Icons
@@ -11,11 +12,13 @@ import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.FilterList
 import androidx.compose.material.icons.filled.Leaderboard
 import androidx.compose.material.icons.filled.List
+import androidx.compose.material.icons.filled.ExitToApp
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.navigation.NavController
 import com.google.accompanist.permissions.ExperimentalPermissionsApi
@@ -23,10 +26,15 @@ import com.google.accompanist.permissions.isGranted
 import com.google.accompanist.permissions.rememberPermissionState
 import com.google.android.gms.location.*
 import com.google.android.gms.maps.CameraUpdateFactory
+import com.google.android.gms.maps.model.BitmapDescriptorFactory
 import com.google.android.gms.maps.model.CameraPosition
 import com.google.android.gms.maps.model.LatLng
+import com.google.android.gms.maps.model.LatLngBounds
 import com.google.firebase.auth.FirebaseAuth
 import com.google.maps.android.compose.*
+import kotlin.math.roundToInt
+
+data class FilterState(val distance: Float, val minRating: Float)
 
 @OptIn(ExperimentalPermissionsApi::class, ExperimentalMaterial3Api::class)
 @SuppressLint("MissingPermission")
@@ -38,60 +46,84 @@ fun MapScreen(
     initialLng: Double?
 ) {
     val context = LocalContext.current
-    val fusedLocationClient = remember { LocationServices.getFusedLocationProviderClient(context) }
-    val currentUserId = FirebaseAuth.getInstance().currentUser?.uid
+    val auth = FirebaseAuth.getInstance()
+    var currentUserId by remember { mutableStateOf(auth.currentUser?.uid) }
 
     var workoutParks by remember { mutableStateOf(listOf<WorkoutPark>()) }
-    var otherUsers by remember { mutableStateOf(listOf<UserLocation>()) }
     var userLocation by remember { mutableStateOf<LatLng?>(null) }
     var nearbyPark by remember { mutableStateOf<WorkoutPark?>(null) }
     var showAddParkDialog by remember { mutableStateOf(false) }
     var showAddRecordDialog by remember { mutableStateOf(false) }
+    var showFilterDialog by remember { mutableStateOf(false) }
+    var filterState by remember { mutableStateOf(FilterState(distance = 10000f, minRating = 0f)) }
     val notifiedParks = remember { mutableStateListOf<String>() }
-    val notifiedUsers = remember { mutableStateListOf<String>() }
-    var showFilterMenu by remember { mutableStateOf(false) }
-    var selectedDistance by remember { mutableStateOf<Int?>(null) }
+    var isMapInitialized by remember { mutableStateOf(false) }
 
-    val cameraPositionState = rememberCameraPositionState {
-        position = CameraPosition.fromLatLngZoom(LatLng(43.3209, 21.8958), 13f)
+    val cameraPositionState = rememberCameraPositionState { position = CameraPosition.fromLatLngZoom(LatLng(43.3209, 21.8958), 13f) }
+
+    val filteredParks = remember(filterState, workoutParks, userLocation) {
+        var parksToFilter = workoutParks
+        parksToFilter = parksToFilter.filter { it.rating.average >= filterState.minRating }
+        userLocation?.let { loc ->
+            val userAndroidLocation = Location("").apply { latitude = loc.latitude; longitude = loc.longitude }
+            parksToFilter = parksToFilter.filter {
+                val parkLocation = Location("").apply { latitude = it.latituda; longitude = it.longituda }
+                userAndroidLocation.distanceTo(parkLocation) <= filterState.distance
+            }
+        }
+        parksToFilter
     }
 
-    val filteredParks = remember(selectedDistance, workoutParks, userLocation) {
-        if (selectedDistance == null || userLocation == null) {
-            workoutParks
-        } else {
-            val userAndroidLocation = Location("").apply {
-                latitude = userLocation!!.latitude
-                longitude = userLocation!!.longitude
-            }
-            workoutParks.filter {
-                val parkLocation = Location("").apply { latitude = it.latituda; longitude = it.longituda }
-                userAndroidLocation.distanceTo(parkLocation) <= selectedDistance!!
-            }
+    LaunchedEffect(userLocation) {
+        if (userLocation != null && !isMapInitialized) {
+            cameraPositionState.animate(
+                update = CameraUpdateFactory.newLatLngZoom(userLocation!!, 15f),
+                durationMs = 1500
+            )
+            isMapInitialized = true
         }
     }
 
-    // --- Dozvole ---
-    val locationPermissionState = rememberPermissionState(Manifest.permission.ACCESS_FINE_LOCATION)
-    val notificationPermissionState = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
-        rememberPermissionState(Manifest.permission.POST_NOTIFICATIONS)
-    } else { null }
-
-    LaunchedEffect(Unit) {
-        locationPermissionState.launchPermissionRequest()
-        notificationPermissionState?.launchPermissionRequest()
-    }
-
-    // --- Pomeranje kamere na prosleđenu lokaciju ---
-    LaunchedEffect(initialLat, initialLng) {
-        if (initialLat != null && initialLng != null) {
+    LaunchedEffect(filteredParks) {
+        if (filteredParks.isNotEmpty() && isMapInitialized) {
+            val boundsBuilder = LatLngBounds.Builder()
+            filteredParks.forEach { park ->
+                boundsBuilder.include(LatLng(park.latituda, park.longituda))
+            }
             cameraPositionState.animate(
-                update = CameraUpdateFactory.newLatLngZoom(LatLng(initialLat, initialLng), 15f)
+                update = CameraUpdateFactory.newLatLngBounds(boundsBuilder.build(), 100),
+                durationMs = 1000
             )
         }
     }
 
-    // --- Praćenje i slanje lokacije ---
+    val locationPermissionState = rememberPermissionState(Manifest.permission.ACCESS_FINE_LOCATION)
+    val fusedLocationClient = remember { LocationServices.getFusedLocationProviderClient(context) }
+
+    DisposableEffect(auth) {
+        val listener = FirebaseAuth.AuthStateListener { currentAuth -> currentUserId = currentAuth.currentUser?.uid }
+        auth.addAuthStateListener(listener)
+        onDispose { auth.removeAuthStateListener(listener) }
+    }
+
+    LaunchedEffect(initialLat, initialLng) {
+        if (initialLat != null && initialLng != null) {
+            cameraPositionState.animate(update = CameraUpdateFactory.newLatLngZoom(LatLng(initialLat, initialLng), 15f))
+            isMapInitialized = true
+        }
+    }
+
+    DisposableEffect(currentUserId) {
+        val localUserId = currentUserId ?: return@DisposableEffect onDispose {}
+        val parksListener = FirestoreService.getWorkoutParks(
+            onResult = { parks -> workoutParks = parks },
+            onError = { error -> Toast.makeText(context, "Greška: ${error.message}", Toast.LENGTH_SHORT).show() }
+        )
+        onDispose {
+            parksListener.remove()
+        }
+    }
+    
     DisposableEffect(locationPermissionState.status) {
         if (locationPermissionState.status.isGranted) {
             val locationRequest = LocationRequest.Builder(Priority.PRIORITY_HIGH_ACCURACY, 10000).build()
@@ -99,67 +131,23 @@ fun MapScreen(
                 override fun onLocationResult(locationResult: LocationResult) {
                     locationResult.lastLocation?.let {
                         userLocation = LatLng(it.latitude, it.longitude)
-                        if (currentUserId != null) {
-                            FirestoreService.updateUserLocation(currentUserId, it.latitude, it.longitude)
+                        currentUserId?.let { uid ->
+                            FirestoreService.updateUserLocation(uid, it.latitude, it.longitude)
                         }
                     }
                 }
             }
             fusedLocationClient.requestLocationUpdates(locationRequest, locationCallback, context.mainLooper)
             onDispose { fusedLocationClient.removeLocationUpdates(locationCallback) }
-        } else { onDispose { } }
-    }
-
-    // --- Provera blizine (Parkovi i Korisnici) ---
-    LaunchedEffect(userLocation, workoutParks, otherUsers) {
-        if (userLocation == null) return@LaunchedEffect
-        val userAndroidLocation = Location("").apply {
-            latitude = userLocation!!.latitude
-            longitude = userLocation!!.longitude
-        }
-
-        nearbyPark = workoutParks.firstOrNull { park ->
-            val parkLocation = Location("").apply { latitude = park.latituda; longitude = park.longituda }
-            userAndroidLocation.distanceTo(parkLocation) < 200
-        }
-
-        workoutParks.forEach { park ->
-            val parkLocation = Location("").apply { latitude = park.latituda; longitude = park.longituda }
-            if (userAndroidLocation.distanceTo(parkLocation) < 200 && !notifiedParks.contains(park.name)) {
-                NotificationHelper.showParkNotification(context, park)
-                notifiedParks.add(park.name)
-            }
-        }
-
-        otherUsers.forEach { otherUser ->
-            val otherUserLocation = Location("").apply { latitude = otherUser.latitude; longitude = otherUser.longitude }
-            if (userAndroidLocation.distanceTo(otherUserLocation) < 200 && !notifiedUsers.contains(otherUser.userId)) {
-                NotificationHelper.showUserNotification(context, otherUser)
-                notifiedUsers.add(otherUser.userId)
-            }
+        } else {
+            onDispose { }
         }
     }
 
-    // --- Učitavanje podataka ---
-    DisposableEffect(Unit) {
-        val parksListener = FirestoreService.getWorkoutParks(
-            onResult = { parks -> workoutParks = parks },
-            onError = { error -> Toast.makeText(context, "Greška: ${error.message}", Toast.LENGTH_SHORT).show() }
-        )
-        val usersListener = if (currentUserId != null) {
-            FirestoreService.listenForOtherUsers(currentUserId,
-                onResult = { users -> otherUsers = users },
-                onError = { error -> Toast.makeText(context, "Greška: ${error.message}", Toast.LENGTH_SHORT).show() }
-            )
-        } else { null }
-
-        onDispose {
-            parksListener.remove()
-            usersListener?.remove()
-        }
+    LaunchedEffect(Unit) {
+        locationPermissionState.launchPermissionRequest()
     }
 
-    // --- UI ---
     Scaffold(
         topBar = {
             TopAppBar(
@@ -168,25 +156,22 @@ fun MapScreen(
                     IconButton(onClick = { navController.navigate("parkList") }) {
                         Icon(Icons.Filled.List, contentDescription = "Lista parkova")
                     }
-                    Box {
-                        IconButton(onClick = { showFilterMenu = true }) {
-                            Icon(Icons.Filled.FilterList, contentDescription = "Filter")
-                        }
-                        DropdownMenu(
-                            expanded = showFilterMenu,
-                            onDismissRequest = { showFilterMenu = false }
-                        ) {
-                            DropdownMenuItem(text = { Text("Prikaži sve") }, onClick = { selectedDistance = null; showFilterMenu = false })
-                            DropdownMenuItem(text = { Text("Do 1 km") }, onClick = { selectedDistance = 1000; showFilterMenu = false })
-                            DropdownMenuItem(text = { Text("Do 5 km") }, onClick = { selectedDistance = 5000; showFilterMenu = false })
-                        }
+                    IconButton(onClick = { showFilterDialog = true }) {
+                        Icon(Icons.Filled.FilterList, contentDescription = "Filter")
                     }
                     IconButton(onClick = { navController.navigate("leaderboard") }) {
                         Icon(Icons.Filled.Leaderboard, contentDescription = "Rang Lista")
                     }
+                    IconButton(onClick = {
+                        auth.signOut()
+                        navController.navigate("login") { popUpTo(0) { inclusive = true } }
+                    }) {
+                        Icon(Icons.Filled.ExitToApp, contentDescription = "Odjavi se")
+                    }
                 }
             )
         },
+        floatingActionButtonPosition = FabPosition.Start,
         floatingActionButton = {
             FloatingActionButton(onClick = { 
                 if (userLocation != null) {
@@ -219,12 +204,6 @@ fun MapScreen(
                         }
                     }
                 }
-                otherUsers.forEach { user ->
-                    Marker(
-                        state = MarkerState(position = LatLng(user.latitude, user.longitude)),
-                        title = user.username
-                    )
-                }
             }
 
             if (nearbyPark != null) {
@@ -237,45 +216,88 @@ fun MapScreen(
             }
         }
 
+        if (showFilterDialog) {
+            FilterDialog(
+                initialState = filterState,
+                onDismiss = { showFilterDialog = false },
+                onApply = { newState ->
+                    filterState = newState
+                    showFilterDialog = false
+                }
+            )
+        }
+
         if (showAddParkDialog) {
             AddParkDialog(
                 onDismiss = { showAddParkDialog = false },
                 onConfirm = { name, opis ->
-                    if (currentUserId != null && userLocation != null) {
+                    val localUserId = currentUserId
+                    if (localUserId != null && userLocation != null) {
                         FirestoreService.addWorkoutPark(
-                            name = name,
-                            opis = opis,
-                            lat = userLocation!!.latitude,
-                            lng = userLocation!!.longitude,
-                            creatorId = currentUserId,
+                            name = name, opis = opis, lat = userLocation!!.latitude, lng = userLocation!!.longitude, creatorId = localUserId,
                             onSuccess = { 
                                 Toast.makeText(context, "Park uspešno dodat!", Toast.LENGTH_SHORT).show()
                                 showAddParkDialog = false 
                             },
-                            onError = { 
-                                Toast.makeText(context, "Greška: ${it.message}", Toast.LENGTH_SHORT).show()
-                            }
+                            onError = { error -> Toast.makeText(context, "Greška: ${error.message}", Toast.LENGTH_SHORT).show() }
                         )
                     }
                 }
             )
         }
 
-        if (showAddRecordDialog && nearbyPark != null && currentUserId != null) {
-            AddRecordDialog(
-                park = nearbyPark!!,
-                userId = currentUserId,
-                onDismiss = { showAddRecordDialog = false },
-                onConfirm = { record ->
-                    FirestoreService.addRecord(record, 
-                        onSuccess = { Toast.makeText(context, "Rekord uspešno dodat!", Toast.LENGTH_SHORT).show() },
-                        onError = { Toast.makeText(context, "Greška: ${it.message}", Toast.LENGTH_SHORT).show() }
-                    )
-                    showAddRecordDialog = false
-                }
-            )
+        if (showAddRecordDialog && nearbyPark != null) {
+            val localUserId = currentUserId
+            if (localUserId != null) {
+                AddRecordDialog(
+                    park = nearbyPark!!, userId = localUserId, onDismiss = { showAddRecordDialog = false },
+                    onConfirm = { record ->
+                        FirestoreService.addRecord(record, 
+                            onSuccess = { Toast.makeText(context, "Rekord uspešno dodat!", Toast.LENGTH_SHORT).show() },
+                            onError = { error -> Toast.makeText(context, "Greška: ${error.message}", Toast.LENGTH_SHORT).show() }
+                        )
+                        showAddRecordDialog = false
+                    }
+                )
+            }
         }
     }
+}
+
+@Composable
+private fun FilterDialog(
+    initialState: FilterState,
+    onDismiss: () -> Unit,
+    onApply: (FilterState) -> Unit
+) {
+    var sliderDistance by remember { mutableStateOf(initialState.distance) }
+    var sliderRating by remember { mutableStateOf(initialState.minRating) }
+
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("Filteri") },
+        text = {
+            Column {
+                Text(String.format("Maksimalna udaljenost: %.1f km", sliderDistance / 1000f))
+                Slider(
+                    value = sliderDistance,
+                    onValueChange = { sliderDistance = it },
+                    valueRange = 0f..10000f,
+                    steps = 9
+                )
+                Spacer(modifier = Modifier.height(16.dp))
+                Text(String.format("Minimalna ocena: %.1f", sliderRating))
+                Slider(
+                    value = sliderRating,
+                    onValueChange = { sliderRating = it },
+                    valueRange = 0f..5f,
+                    steps = 9
+                )
+            }
+        },
+        confirmButton = { Button(onClick = { onApply(FilterState(distance = sliderDistance, minRating = sliderRating)) }) { Text("Primeni") } },
+        dismissButton = { Button(onClick = onDismiss) { Text("Odustani") } }
+    )
 }
 
 @Composable
@@ -291,33 +313,13 @@ private fun AddParkDialog(
         title = { Text("Dodaj novi park") },
         text = {
             Column {
-                OutlinedTextField(
-                    value = parkName,
-                    onValueChange = { parkName = it },
-                    label = { Text("Ime parka") }
-                )
+                OutlinedTextField(value = parkName, onValueChange = { parkName = it }, label = { Text("Ime parka") })
                 Spacer(modifier = Modifier.height(8.dp))
-                OutlinedTextField(
-                    value = parkOpis,
-                    onValueChange = { parkOpis = it },
-                    label = { Text("Opis parka") }
-                )
+                OutlinedTextField(value = parkOpis, onValueChange = { parkOpis = it }, label = { Text("Opis parka") })
             }
         },
-        confirmButton = {
-            Button(onClick = { 
-                if (parkName.isNotBlank()) {
-                    onConfirm(parkName, parkOpis)
-                } 
-            }) {
-                Text("Dodaj")
-            }
-        },
-        dismissButton = {
-            Button(onClick = onDismiss) {
-                Text("Odustani")
-            }
-        }
+        confirmButton = { Button(onClick = { if (parkName.isNotBlank()) { onConfirm(parkName, parkOpis) } }) { Text("Dodaj") } },
+        dismissButton = { Button(onClick = onDismiss) { Text("Odustani") } }
     )
 }
 
@@ -339,22 +341,14 @@ private fun AddRecordDialog(
         title = { Text("Dodaj novi rekord") },
         text = {
             Column {
-                ExposedDropdownMenuBox(
-                    expanded = expanded,
-                    onExpandedChange = { expanded = !expanded }
-                ) {
+                ExposedDropdownMenuBox(expanded = expanded, onExpandedChange = { expanded = !expanded }) {
                     OutlinedTextField(
-                        value = selectedExercise,
-                        onValueChange = {},
-                        readOnly = true,
-                        label = { Text("Vežba") },
+                        value = selectedExercise, onValueChange = {},
+                        readOnly = true, label = { Text("Vežba") },
                         trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded = expanded) },
                         modifier = Modifier.menuAnchor()
                     )
-                    ExposedDropdownMenu(
-                        expanded = expanded,
-                        onDismissRequest = { expanded = false }
-                    ) {
+                    ExposedDropdownMenu(expanded = expanded, onDismissRequest = { expanded = false }) {
                         exercises.forEach { exercise ->
                             DropdownMenuItem(
                                 text = { Text(exercise) },
@@ -366,24 +360,16 @@ private fun AddRecordDialog(
                         }
                     }
                 }
-
                 Spacer(modifier = Modifier.height(8.dp))
-
-                OutlinedTextField(
-                    value = score,
-                    onValueChange = { score = it },
-                    label = { Text("Rezultat") }
-                )
+                OutlinedTextField(value = score, onValueChange = { score = it }, label = { Text("Rezultat") })
             }
         },
-        confirmButton = {
-            Button(onClick = {
-                val scoreLong = score.toLongOrNull()
-                if (scoreLong != null && selectedExercise.isNotBlank()) {
-                    onConfirm(UserRecord(userId, park.id, selectedExercise, scoreLong, com.google.firebase.Timestamp.now()))
-                }
-            }) { Text("Dodaj") }
-        },
+        confirmButton = { Button(onClick = {
+            val scoreLong = score.toLongOrNull()
+            if (scoreLong != null && selectedExercise.isNotBlank()) {
+                onConfirm(UserRecord(userId, park.id, selectedExercise, scoreLong, com.google.firebase.Timestamp.now()))
+            }
+        }) { Text("Dodaj") } },
         dismissButton = { Button(onClick = onDismiss) { Text("Odustani") } }
     )
 }
