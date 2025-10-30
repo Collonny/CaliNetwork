@@ -28,6 +28,7 @@ import com.google.accompanist.permissions.isGranted
 import com.google.accompanist.permissions.rememberPermissionState
 import com.google.firebase.Timestamp
 import com.google.firebase.auth.FirebaseAuth
+import com.google.firebase.auth.UserProfileChangeRequest
 import com.google.firebase.firestore.FirebaseFirestore
 import java.io.File
 
@@ -121,36 +122,40 @@ fun RegisterScreen(
                 FirebaseAuth.getInstance().createUserWithEmailAndPassword(email, password)
                     .addOnCompleteListener { authTask ->
                         if (authTask.isSuccessful) {
-                            val userId = FirebaseAuth.getInstance().currentUser?.uid ?: ""
-                            
-                            if (photoUri != null) {
-                                CloudinaryService.uploadImage(photoUri!!) { imageUrl ->
-                                    saveUserToFirestore(
-                                        userId = userId, 
-                                        fullName = fullName, 
-                                        email = email,
-                                        phoneNumber = phoneNumber,
-                                        photoUrl = imageUrl,
-                                        onSuccess = { isLoading = false; onRegisterSuccess() },
-                                        onFailure = { e -> 
-                                            errorMessage = "Greška pri kreiranju korisničkog profila: ${e.message}"
-                                            isLoading = false
+                            val user = authTask.result?.user
+                            val userId = user?.uid ?: ""
+
+                            val profileUpdates = UserProfileChangeRequest.Builder()
+                                .setDisplayName(fullName)
+                                .build()
+
+                            user?.updateProfile(profileUpdates)?.addOnCompleteListener { updateTask ->
+                                if (updateTask.isSuccessful) {
+                                    if (photoUri != null) {
+                                        CloudinaryService.uploadImage(photoUri!!) { imageUrl ->
+                                            saveUserToFirestore(
+                                                userId = userId, fullName = fullName, email = email, phoneNumber = phoneNumber, photoUrl = imageUrl,
+                                                onSuccess = { isLoading = false; onRegisterSuccess() },
+                                                onFailure = { e -> 
+                                                    errorMessage = e.message
+                                                    isLoading = false
+                                                }
+                                            )
                                         }
-                                    )
-                                }
-                            } else {
-                                saveUserToFirestore(
-                                    userId = userId, 
-                                    fullName = fullName, 
-                                    email = email,
-                                    phoneNumber = phoneNumber,
-                                    photoUrl = "",
-                                    onSuccess = { isLoading = false; onRegisterSuccess() },
-                                    onFailure = { e -> 
-                                        errorMessage = "Greška pri kreiranju korisničkog profila: ${e.message}"
-                                        isLoading = false
+                                    } else {
+                                        saveUserToFirestore(
+                                            userId = userId, fullName = fullName, email = email, phoneNumber = phoneNumber, photoUrl = "",
+                                            onSuccess = { isLoading = false; onRegisterSuccess() },
+                                            onFailure = { e -> 
+                                                errorMessage = e.message
+                                                isLoading = false
+                                            }
+                                        )
                                     }
-                                )
+                                } else {
+                                    errorMessage = updateTask.exception?.message
+                                    isLoading = false
+                                }
                             }
                         } else {
                             errorMessage = authTask.exception?.message

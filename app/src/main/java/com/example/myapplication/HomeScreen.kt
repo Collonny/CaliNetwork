@@ -52,7 +52,7 @@ fun HomeScreen(
             )
             Spacer(modifier = Modifier.height(32.dp))
             Button(
-                onClick = onNavigateToMap, // ✅ sada koristiš parametar
+                onClick = onNavigateToMap,
                 modifier = Modifier.fillMaxWidth()
             ) {
                 Text("Pronađi parkove za trening")

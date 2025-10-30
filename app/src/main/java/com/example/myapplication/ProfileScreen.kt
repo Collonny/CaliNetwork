@@ -19,6 +19,8 @@ import androidx.compose.ui.unit.dp
 import coil.compose.rememberAsyncImagePainter
 import com.google.firebase.auth.FirebaseAuth
 import kotlinx.coroutines.launch
+import java.text.SimpleDateFormat
+import java.util.Locale
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -98,8 +100,21 @@ fun ProfileScreen(onBack: () -> Unit) {
                 if (profileData!!.userRecords.isEmpty()) {
                     item { Text("Nema unetih rekorda.") }
                 } else {
-                    items(profileData!!.userRecords) {
-                        Text("${it.type.replaceFirstChar { c -> c.uppercase() }}: ${it.score}")
+                    items(profileData!!.userRecords) { recordWithPark ->
+                        Card(modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp)) {
+                            Column(modifier = Modifier.padding(12.dp)) {
+                                Text(
+                                    text = "${recordWithPark.record.type.replaceFirstChar { it.uppercase() }}: ${recordWithPark.record.score}",
+                                    style = MaterialTheme.typography.bodyLarge, 
+                                    fontWeight = FontWeight.Bold
+                                )
+                                Text("Park: ${recordWithPark.parkName}")
+                                Text(
+                                    text = SimpleDateFormat("dd.MM.yyyy. HH:mm", Locale.getDefault()).format(recordWithPark.record.timestamp.toDate()),
+                                    style = MaterialTheme.typography.bodySmall
+                                )
+                            }
+                        }
                     }
                 }
             }

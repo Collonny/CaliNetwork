@@ -32,6 +32,8 @@ import kotlin.math.roundToInt
 
 data class FilterState(val distance: Float, val minRating: Float)
 
+private val DefaultFilterState = FilterState(distance = 10000f, minRating = 0f)
+
 @OptIn(ExperimentalPermissionsApi::class, ExperimentalMaterial3Api::class)
 @SuppressLint("MissingPermission")
 @Composable
@@ -51,23 +53,27 @@ fun MapScreen(
     var showAddParkDialog by remember { mutableStateOf(false) }
     var showAddRecordDialog by remember { mutableStateOf(false) }
     var showFilterDialog by remember { mutableStateOf(false) }
-    var filterState by remember { mutableStateOf(FilterState(distance = 10000f, minRating = 0f)) }
+    var filterState by remember { mutableStateOf(DefaultFilterState) }
     val notifiedParks = remember { mutableStateListOf<String>() }
     var isMapInitialized by remember { mutableStateOf(false) }
 
     val cameraPositionState = rememberCameraPositionState { position = CameraPosition.fromLatLngZoom(LatLng(43.3209, 21.8958), 13f) }
 
     val filteredParks = remember(filterState, workoutParks, userLocation) {
-        var parksToFilter = workoutParks
-        parksToFilter = parksToFilter.filter { it.rating.average >= filterState.minRating }
-        userLocation?.let { loc ->
-            val userAndroidLocation = Location("").apply { latitude = loc.latitude; longitude = loc.longitude }
-            parksToFilter = parksToFilter.filter {
-                val parkLocation = Location("").apply { latitude = it.latituda; longitude = it.longituda }
-                userAndroidLocation.distanceTo(parkLocation) <= filterState.distance
+        if (filterState == DefaultFilterState) {
+            workoutParks
+        } else {
+            var parksToFilter = workoutParks
+            parksToFilter = parksToFilter.filter { it.rating.average >= filterState.minRating }
+            userLocation?.let { loc ->
+                val userAndroidLocation = Location("").apply { latitude = loc.latitude; longitude = loc.longitude }
+                parksToFilter = parksToFilter.filter {
+                    val parkLocation = Location("").apply { latitude = it.latituda; longitude = it.longituda }
+                    userAndroidLocation.distanceTo(parkLocation) <= filterState.distance
+                }
             }
+            parksToFilter
         }
-        parksToFilter
     }
 
     LaunchedEffect(userLocation) {
@@ -243,6 +249,10 @@ fun MapScreen(
                 onApply = { newState ->
                     filterState = newState
                     showFilterDialog = false
+                },
+                onReset = {
+                    filterState = DefaultFilterState
+                    showFilterDialog = false
                 }
             )
         }
@@ -288,7 +298,8 @@ fun MapScreen(
 private fun FilterDialog(
     initialState: FilterState,
     onDismiss: () -> Unit,
-    onApply: (FilterState) -> Unit
+    onApply: (FilterState) -> Unit,
+    onReset: () -> Unit
 ) {
     var sliderDistance by remember { mutableStateOf(initialState.distance) }
     var sliderRating by remember { mutableStateOf(initialState.minRating) }
@@ -316,7 +327,11 @@ private fun FilterDialog(
             }
         },
         confirmButton = { Button(onClick = { onApply(FilterState(distance = sliderDistance, minRating = sliderRating)) }) { Text("Primeni") } },
-        dismissButton = { Button(onClick = onDismiss) { Text("Odustani") } }
+        dismissButton = { 
+            TextButton(onClick = onReset) {
+                Text("Poništi filtere")
+            }
+        }
     )
 }
 

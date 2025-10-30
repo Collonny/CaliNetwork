@@ -53,6 +53,11 @@ data class UserRecord(
     constructor() : this("", "", "", 0L, Timestamp.now()) 
 }
 
+data class UserRecordWithParkName(
+    val record: UserRecord,
+    val parkName: String
+)
+
 data class UserLocation(
     val userId: String = "",
     val username: String = "",
@@ -71,7 +76,7 @@ data class LeaderboardEntry(
 data class UserProfileData(
     val user: User,
     val createdParks: List<WorkoutPark>,
-    val userRecords: List<UserRecord>
+    val userRecords: List<UserRecordWithParkName>
 )
 
 // --- SERVIS ---
@@ -179,16 +184,23 @@ object FirestoreService {
     suspend fun getUserProfileData(userId: String): UserProfileData? = coroutineScope {
         try {
             val userDeferred = async { db.collection("users").document(userId).get().await() }
-            val parksDeferred = async { db.collection("workout_park").whereEqualTo("createdBy", userId).get().await() }
+            val parksDeferred = async { db.collection("workout_park").get().await() }
             val recordsDeferred = async { db.collection("records").whereEqualTo("userId", userId).get().await() }
 
             val userDoc = userDeferred.await()
             val user = userDoc.toObject(User::class.java) ?: return@coroutineScope null
 
-            val createdParks = parksDeferred.await().toObjects(WorkoutPark::class.java)
+            val allParks = parksDeferred.await().mapNotNull { it.toObject(WorkoutPark::class.java).apply { id = it.id } }
             val userRecords = recordsDeferred.await().toObjects(UserRecord::class.java)
 
-            UserProfileData(user, createdParks, userRecords.sortedByDescending { it.timestamp })
+            val createdParks = allParks.filter { it.createdBy == userId }
+            
+            val recordsWithParkNames = userRecords.map { record ->
+                val parkName = allParks.find { it.id == record.parkId }?.name ?: "Nepoznat park"
+                UserRecordWithParkName(record, parkName)
+            }
+
+            UserProfileData(user, createdParks, recordsWithParkNames.sortedByDescending { it.record.timestamp })
         } catch (e: Exception) {
             null
         }

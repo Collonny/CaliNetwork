@@ -15,10 +15,11 @@ object CloudinaryService {
     fun initialize(context: Context) {
         if (isInitialized) return
         try {
+            // 🔹 VAŽNO: Proverite da li su ovo vaši stvarni podaci
             val config = mapOf(
                 "cloud_name" to "dzh1lsvcm",
-                "api_key" to "435948132225333",
-                "api_secret" to "2T6T5UuG_Gv94AH25a2n5Jz3C-s"
+                "api_key" to "749362658272874",
+                "api_secret" to "ln6_wH9Ymv8BOS3rXgp-ueb-Pdo"
             )
             MediaManager.init(context, config)
             isInitialized = true
@@ -51,11 +52,13 @@ object CloudinaryService {
 
                 override fun onError(requestId: String?, error: ErrorInfo?) {
                     Log.e(TAG, "Upload failed for $requestId. Error: ${error?.description}")
-                    onResult("")
+                    onResult("") // Vraćamo prazan string u slučaju greške
                 }
 
+                // 🔹 ISPRAVKA: I ovde moramo javiti da je došlo do problema
                 override fun onReschedule(requestId: String?, error: ErrorInfo?) {
                     Log.w(TAG, "Upload rescheduled for $requestId. Error: ${error?.description}")
+                    onResult("") // Javljamo UI-ju da prekine čekanje
                 }
             })
             .dispatch()
